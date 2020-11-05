@@ -21,31 +21,7 @@
 
 volatile bool interruptDataLoss = false;
 volatile unsigned long events = 0;
-
-const char bank0[][68] = {
-              "IODIRA   1111 1111",
-              "IODIRB   1111 1111",
-              "IPOLA    0000 0000",
-              "IPOLB    0000 0000",
-              "GPINTENA 0000 0000",
-              "GPINTENB 0000 0000",
-              "DEFVALA  0000 0000",
-              "DEFVALB  0000 0000",
-              "INTCONA  0000 0000",
-              "INTCONB  0000 0000",
-              "IOCON-A  0000 0000 {BANK,MIRROR,SEQOP,DISSLW,HAEN,ODR,INTPOL,—}",
-              "IOCON-B  0000 0000 {BANK,MIRROR,SEQOP,DISSLW,HAEN,ODR,INTPOL,—}",
-              "GPPUA    0000 0000",
-              "GPPUB    0000 0000",
-              "INTFA    0000 0000",
-              "INTFB    0000 0000",
-              "INTCAPA  0000 0000",
-              "INTCAPB  0000 0000",
-              "GPIOA    0000 0000",
-              "GPIOB    0000 0000",
-              "OLATA    0000 0000",
-              "OLATB    0000 0000"
-              };
+volatile bool clearInterruptCycle = false;
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_GPIO_PATTERN "%s,%s,%s,%s,%s,%s,%s,%s"
@@ -90,27 +66,17 @@ const char bank0[][68] = {
       (byte & 0x02 ? "9" : " "), \
       (byte & 0x01 ? "8" : " ")
 
-typedef struct __attribute__((packed)) _McpBits
-{
-  uint8_t p7 : 1, p6 : 1, p5 : 1, p4 : 1, p3 : 1, p2 : 1, p1 : 1, p0 : 1;
-} McpBits;
-
-typedef union __attribute__((packed)) _McpByte
-{
-  McpBits bit;
-  uint8_t port;
-} MCPByte;
-
 typedef struct __attribute__((packed)) _McpIState
 {
-  MCPByte intfA;
-  MCPByte intfB;
-  MCPByte intcapA;
-  MCPByte intcapB;
+  uint8_t intfA;
+  uint8_t intfB;
+  uint8_t intcapA;
+  uint8_t intcapB;
 } McpIState, *PMcpIState;
 
 byte ICACHE_RAM_ATTR mcpClearInterrupts();
 void ICACHE_RAM_ATTR interruptHandler();
+void mcpSendStatus(bool statusCycle);
 
 McpIState mcp;
 
@@ -137,22 +103,47 @@ void ICACHE_RAM_ATTR onHomieEvent(const HomieEvent &event)
     break;
   case HomieEventType::MQTT_READY:
     Serial << "MQTT connected !" << endl;
-    // attachInterrupt(digitalPinToInterrupt(PIN_INT), interruptHandler, FALLING);
-    // mcpClearInterrupts();
     break;
   case HomieEventType::MQTT_DISCONNECTED:
     Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << endl;
-    // detachInterrupt(digitalPinToInterrupt(PIN_INT));
-    // mcpClearInterrupts();
     break;
   case HomieEventType::SENDING_STATISTICS:
     Serial << "Sending statistics !" << endl;
-        // send state of inputs
-    // mcpClearInterrupts();
+    mcpSendStatus( true );    
     break;
   default:
     break;
   }
+}
+
+void mcpSendStatus(bool statusCycle=false) {
+  HomieRange rangeA = {true, 16};
+  HomieRange rangeB = {true, 16};
+
+  Serial.printf("Event.Count[%05lu] Data.Loss[%s], Queue.Depth[%d], INTFA[" BYTE_TO_BINARY_PATTERN "] INTFB[" BYTE_TO_BINARY_PATTERN "] INTCAPA[" BYTE_TO_GPIO_PATTERN "] INTCAPB[" BYTE_TO_GPIO_PATTERN "]\n",
+                events, interruptDataLoss ? "Yes" : "No", mcpQueue.getCount(),
+                BYTE_TO_BINARY(mcp.intfA), BYTE_TO_BINARY(mcp.intfB),
+                GPIOA_FROM_BYTE(mcp.intcapA), GPIOB_FROM_BYTE(mcp.intcapB));
+
+  String gpioA[] = {GPIOA_FROM_BYTE(mcp.intfA)};
+  String gpioB[] = {GPIOB_FROM_BYTE(mcp.intfB)};
+  String intcapA[] = {BYTE_TO_STRING(mcp.intcapA)};
+  String intcapB[] = {BYTE_TO_STRING(mcp.intcapB)};
+  for (uint8_t idx = 0; idx < 8; idx++)
+  {
+    rangeA.index = (7 - idx);
+    if (!gpioA[idx].equals(" ") || statusCycle)
+    {
+      wiredProvider.setProperty("entry").setRange(rangeA).send(intcapA[idx].equals("1") ? "true" : "false");
+    }
+    rangeB.index = (15 - idx);
+    if (!gpioB[idx].equals(" ") || statusCycle)
+    {
+      wiredProvider.setProperty("entry").setRange(rangeB).send(intcapB[idx].equals("1") ? "true" : "false");
+    }
+  }
+
+  clearInterruptCycle = statusCycle;
 }
 
 byte ICACHE_RAM_ATTR mcpClearInterrupts()
@@ -166,50 +157,29 @@ byte ICACHE_RAM_ATTR mcpClearInterrupts()
 
 void  loopHandler()
 {
-  HomieRange rangeA = {true, 16};
-  HomieRange rangeB = {true, 16};
 
   if (!mcpQueue.isEmpty())
     digitalWrite(LED_BUILTIN, LOW);
 
   while (!mcpQueue.isEmpty())
   {    
-    mcpQueue.pop(&mcp);
-    Serial.printf("Event.Count[%05lu] Data.Loss[%s], Queue.Depth[%d], INTFA[" BYTE_TO_BINARY_PATTERN "] INTFB[" BYTE_TO_BINARY_PATTERN "] INTCAPA[" BYTE_TO_GPIO_PATTERN "] INTCAPB[" BYTE_TO_GPIO_PATTERN "]\n",
-                  events, interruptDataLoss ? "Yes" : "No", mcpQueue.getCount(),
-                  BYTE_TO_BINARY(mcp.intfA.port), BYTE_TO_BINARY(mcp.intfB.port),
-                  GPIOA_FROM_BYTE(mcp.intcapA.port), GPIOB_FROM_BYTE(mcp.intcapB.port));
-
-    String gpioA[]   = { GPIOA_FROM_BYTE(mcp.intfA.port) };
-    String gpioB[]   = { GPIOB_FROM_BYTE(mcp.intfB.port) };
-    String intcapA[] = { BYTE_TO_STRING(mcp.intcapA.port) };
-    String intcapB[] = { BYTE_TO_STRING(mcp.intcapB.port) };
-    for (uint8_t idx = 0; idx < 8; idx++)
-    {
-      rangeA.index = (7 - idx);
-      if ( !gpioA[idx].equals(" ") ) {
-        Homie.getLogger() << "Index[" << rangeA.index << "] = " << gpioA[idx] << ", Pin Value = " << intcapA[idx] << endl;
-        wiredProvider.setProperty("entry").setRange(rangeA).send( intcapA[idx].equals("1") ? "true" : "false" );
-      }
-      rangeB.index = (15 - idx);
-      if (!gpioB[idx].equals(" "))
-      {
-        Homie.getLogger() << "Index[" << rangeB.index << "] = " << gpioB[idx] << ", Pin Value = " << intcapB[idx] << endl;
-        wiredProvider.setProperty("entry").setRange(rangeB).send(intcapB[idx].equals("1") ? "true" : "false" );
-      }
+    if (mcpQueue.pop(&mcp) ) {
+      mcpSendStatus( false );
+      yield();
     }
   }
   interruptDataLoss = false;
   digitalWrite(LED_BUILTIN, HIGH);
 
-  // if ((millis() % 60000UL) == 0)
-  // {
-  //   digitalWrite(LED_BUILTIN, LOW);
-  //   mcpClearInterrupts();
-  //   digitalWrite(LED_BUILTIN, HIGH);
-  //   Serial.print(".");
-  // }
   yield();
+
+  if (clearInterruptCycle)
+  {
+    clearInterruptCycle = false;
+    digitalWrite(LED_BUILTIN, LOW);
+    mcpClearInterrupts();
+    digitalWrite(LED_BUILTIN, HIGH);
+  }
 }
 
 void ICACHE_RAM_ATTR interruptHandler() {
@@ -218,7 +188,7 @@ void ICACHE_RAM_ATTR interruptHandler() {
   brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
   byte regData[2] = {0x0E, 0x00}; // INTF -> INTCAP
   brzo_i2c_write(regData, 1, true);
-  brzo_i2c_read((uint8_t *)&(mcpi.intfA.port), sizeof(McpIState), false);
+  brzo_i2c_read((uint8_t *)&(mcpi.intfA), sizeof(McpIState), false);
   if (!brzo_i2c_end_transaction())
   {
     interruptDataLoss = !mcpQueue.push(&mcpi);
@@ -228,26 +198,10 @@ void ICACHE_RAM_ATTR interruptHandler() {
 
 
 byte ICACHE_RAM_ATTR mcpInit() {
-  uint8_t before[DEPTH];
-  uint8_t after[DEPTH];
 
   byte retCode;
 
   brzo_i2c_setup(PIN_SDA, PIN_SCL, 200);
-
-  /*
-   * Document PowerOn State
-  */
-  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-  before[0] = 0x00;
-  brzo_i2c_write(before, 1, true);     // BANK.0.IODIRA
-  brzo_i2c_read(before, DEPTH, false); // BANK.0.ALL
-  retCode = brzo_i2c_end_transaction();
-  Serial.printf("Before return code=%d\n", retCode);
-  for (int idx = 0; idx < DEPTH; idx++)
-  {
-    Serial.printf("reg[0x%02x] %s value[" BYTE_TO_BINARY_PATTERN "]\n", idx, &bank0[idx][0], BYTE_TO_BINARY(before[idx]));
-  }
 
   /*
    * Configure MCP23017 
@@ -279,20 +233,6 @@ byte ICACHE_RAM_ATTR mcpInit() {
   retCode = brzo_i2c_end_transaction();
   Serial.printf("GPPU Initilization return code=%d\n", retCode);
 
-  /*
-   * Confirm Configuration
-  */
-  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-  after[0] = 0x00;
-  brzo_i2c_write(after, 1, true);
-  brzo_i2c_read(after, DEPTH, false);
-  retCode = brzo_i2c_end_transaction();
-  Serial.printf("After return code=%d\n", retCode);
-  for (int idx = 0; idx < DEPTH; idx++)
-  {
-    Serial.printf("reg[0x%02x] %s value[" BYTE_TO_BINARY_PATTERN "]\n", idx, &bank0[idx][0], BYTE_TO_BINARY(after[idx]));
-  }
-
   mcpClearInterrupts();
 
   return retCode;
@@ -314,7 +254,7 @@ void setup()
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PIN_INT, INPUT_PULLUP);
   
-  Homie_setFirmware("wired-provider-16", "1.0.0");
+  Homie_setFirmware("wired-provider-16", "1.0.1");
   Homie_setBrand("SknSensors");
   Homie
       .setBroadcastHandler(broadcastHandler)
@@ -324,9 +264,10 @@ void setup()
       .setLedPin(LED_BUILTIN, LOW);
 
   wiredProvider.advertise("entry")
-          .setName("Entry[]")
-          .setDatatype("boolean")
-          .settable(false);
+      .setRetained(true)
+      .setName("Entry[]")
+      .setDatatype("boolean")
+      .settable(false);
 
   Homie.setup();
 }

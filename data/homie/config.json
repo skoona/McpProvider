@@ -1,7 +1,7 @@
 {
-  "name": "Wired Provider",
+  "name": "Hard Wired Alarm Sensors",
   "device_id": "WiredProvider",
-  "device_stats_interval": 900,  
+  "device_stats_interval": 300,  
   "wifi": {
     "ssid": "SFNSS1-24G",
     "password": "Apache Tomcat 8"
