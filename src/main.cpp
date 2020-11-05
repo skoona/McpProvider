@@ -142,9 +142,8 @@ void mcpSendStatus(bool statusCycle=false) {
       wiredProvider.setProperty("entry").setRange(rangeB).send(intcapB[idx].equals("1") ? "true" : "false");
     }
   }
-  if (statusCycle) {
-	  clearInterruptCycle = statusCycle;
-  }
+
+  clearInterruptCycle = statusCycle;
 }
 
 byte ICACHE_RAM_ATTR mcpClearInterrupts()
