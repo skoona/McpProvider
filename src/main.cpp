@@ -4,7 +4,8 @@
  * 
  * 
  */
-#include <Arduino.h>
+// #include <Arduino.h>
+#include <Homie.h>
 #include <brzo_i2c.h>
 #include <cppQueue.h>
 
@@ -19,12 +20,7 @@
 #define DEPTH 22 // 22
 
 volatile bool interruptDataLoss = false;
-
-uint8_t before[DEPTH];
-uint8_t after[DEPTH];
-
-
-byte    retCode;
+volatile unsigned long events = 0;
 
 const char bank0[][68] = {
               "IODIRA   1111 1111",
@@ -53,8 +49,19 @@ const char bank0[][68] = {
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_GPIO_PATTERN "%s,%s,%s,%s,%s,%s,%s,%s"
+
+#define BYTE_TO_STRING(byte)     \
+      (byte & 0x80 ? "1" : "0"),     \
+      (byte & 0x40 ? "1" : "0"), \
+      (byte & 0x20 ? "1" : "0"), \
+      (byte & 0x10 ? "1" : "0"), \
+      (byte & 0x08 ? "1" : "0"), \
+      (byte & 0x04 ? "1" : "0"), \
+      (byte & 0x02 ? "1" : "0"), \
+      (byte & 0x01 ? "1" : "0")
+
 #define BYTE_TO_BINARY(byte)     \
-  (byte & 0x80 ? '1' : '0'),     \
+      (byte & 0x80 ? '1' : '0'),     \
       (byte & 0x40 ? '1' : '0'), \
       (byte & 0x20 ? '1' : '0'), \
       (byte & 0x10 ? '1' : '0'), \
@@ -64,25 +71,24 @@ const char bank0[][68] = {
       (byte & 0x01 ? '1' : '0')
 
 #define GPIOA_FROM_BYTE(byte)      \
-      (byte & 0x80 ? "PA7" : ""), \
-      (byte & 0x40 ? "PA6" : ""), \
-      (byte & 0x20 ? "PA5" : ""), \
-      (byte & 0x10 ? "PA4" : ""), \
-      (byte & 0x08 ? "PA3" : ""), \
-      (byte & 0x04 ? "PA2" : ""), \
-      (byte & 0x02 ? "PA1" : ""), \
-      (byte & 0x01 ? "PA0" : "")
-#define GPIOB_FROM_BYTE(byte)      \
-      (byte & 0x80 ? "PB7" : ""), \
-      (byte & 0x40 ? "PB6" : ""), \
-      (byte & 0x20 ? "PB5" : ""), \
-      (byte & 0x10 ? "PB4" : ""), \
-      (byte & 0x08 ? "PB3" : ""), \
-      (byte & 0x04 ? "PB2" : ""), \
-      (byte & 0x02 ? "PB1" : ""), \
-      (byte & 0x01 ? "PB0" : "")
+      (byte & 0x80 ? "7" : " "), \
+      (byte & 0x40 ? "6" : " "), \
+      (byte & 0x20 ? "5" : " "), \
+      (byte & 0x10 ? "4" : " "), \
+      (byte & 0x08 ? "3" : " "), \
+      (byte & 0x04 ? "2" : " "), \
+      (byte & 0x02 ? "1" : " "), \
+      (byte & 0x01 ? "0" : " ")
 
-
+#define GPIOB_FROM_BYTE(byte)     \
+      (byte & 0x80 ? "15" : " "),     \
+      (byte & 0x40 ? "14" : " "), \
+      (byte & 0x20 ? "13" : " "), \
+      (byte & 0x10 ? "12" : " "), \
+      (byte & 0x08 ? "11" : " "), \
+      (byte & 0x04 ? "10" : " "), \
+      (byte & 0x02 ? "9" : " "), \
+      (byte & 0x01 ? "8" : " ")
 
 typedef struct __attribute__((packed)) _McpBits
 {
@@ -103,7 +109,51 @@ typedef struct __attribute__((packed)) _McpIState
   MCPByte intcapB;
 } McpIState, *PMcpIState;
 
+byte ICACHE_RAM_ATTR mcpClearInterrupts();
+void ICACHE_RAM_ATTR interruptHandler();
+
+McpIState mcp;
+
 Queue mcpQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instantiate queue
+
+// id, name, type, range, lower, upper
+HomieNode wiredProvider("entry", "Entry", "contact", true, 0, 15);
+
+bool broadcastHandler(const String &level, const String &value)
+{
+  Homie.getLogger() << "Received broadcast level " << level << ": " << value << endl;
+  return true;
+}
+
+void ICACHE_RAM_ATTR onHomieEvent(const HomieEvent &event)
+{
+  switch (event.type)
+  {
+  case HomieEventType::NORMAL_MODE:
+    Serial << "Normal mode started !" << endl;
+    break;
+  case HomieEventType::WIFI_DISCONNECTED:
+    Serial << "Wi-Fi disconnected, reason: " << (int8_t)event.wifiReason << endl;
+    break;
+  case HomieEventType::MQTT_READY:
+    Serial << "MQTT connected !" << endl;
+    // attachInterrupt(digitalPinToInterrupt(PIN_INT), interruptHandler, FALLING);
+    // mcpClearInterrupts();
+    break;
+  case HomieEventType::MQTT_DISCONNECTED:
+    Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << endl;
+    // detachInterrupt(digitalPinToInterrupt(PIN_INT));
+    // mcpClearInterrupts();
+    break;
+  case HomieEventType::SENDING_STATISTICS:
+    Serial << "Sending statistics !" << endl;
+        // send state of inputs
+    // mcpClearInterrupts();
+    break;
+  default:
+    break;
+  }
+}
 
 byte ICACHE_RAM_ATTR mcpClearInterrupts()
 {
@@ -114,7 +164,55 @@ byte ICACHE_RAM_ATTR mcpClearInterrupts()
   return brzo_i2c_end_transaction();
 }
 
-void ICACHE_RAM_ATTR triggerHandler() {
+void  loopHandler()
+{
+  HomieRange rangeA = {true, 16};
+  HomieRange rangeB = {true, 16};
+
+  if (!mcpQueue.isEmpty())
+    digitalWrite(LED_BUILTIN, LOW);
+
+  while (!mcpQueue.isEmpty())
+  {    
+    mcpQueue.pop(&mcp);
+    Serial.printf("Event.Count[%05lu] Data.Loss[%s], Queue.Depth[%d], INTFA[" BYTE_TO_BINARY_PATTERN "] INTFB[" BYTE_TO_BINARY_PATTERN "] INTCAPA[" BYTE_TO_GPIO_PATTERN "] INTCAPB[" BYTE_TO_GPIO_PATTERN "]\n",
+                  events, interruptDataLoss ? "Yes" : "No", mcpQueue.getCount(),
+                  BYTE_TO_BINARY(mcp.intfA.port), BYTE_TO_BINARY(mcp.intfB.port),
+                  GPIOA_FROM_BYTE(mcp.intcapA.port), GPIOB_FROM_BYTE(mcp.intcapB.port));
+
+    String gpioA[]   = { GPIOA_FROM_BYTE(mcp.intfA.port) };
+    String gpioB[]   = { GPIOB_FROM_BYTE(mcp.intfB.port) };
+    String intcapA[] = { BYTE_TO_STRING(mcp.intcapA.port) };
+    String intcapB[] = { BYTE_TO_STRING(mcp.intcapB.port) };
+    for (uint8_t idx = 0; idx < 8; idx++)
+    {
+      rangeA.index = (7 - idx);
+      if ( !gpioA[idx].equals(" ") ) {
+        Homie.getLogger() << "Index[" << rangeA.index << "] = " << gpioA[idx] << ", Pin Value = " << intcapA[idx] << endl;
+        wiredProvider.setProperty("entry").setRange(rangeA).send( intcapA[idx].equals("1") ? "true" : "false" );
+      }
+      rangeB.index = (15 - idx);
+      if (!gpioB[idx].equals(" "))
+      {
+        Homie.getLogger() << "Index[" << rangeB.index << "] = " << gpioB[idx] << ", Pin Value = " << intcapB[idx] << endl;
+        wiredProvider.setProperty("entry").setRange(rangeB).send(intcapB[idx].equals("1") ? "true" : "false" );
+      }
+    }
+  }
+  interruptDataLoss = false;
+  digitalWrite(LED_BUILTIN, HIGH);
+
+  // if ((millis() % 60000UL) == 0)
+  // {
+  //   digitalWrite(LED_BUILTIN, LOW);
+  //   mcpClearInterrupts();
+  //   digitalWrite(LED_BUILTIN, HIGH);
+  //   Serial.print(".");
+  // }
+  yield();
+}
+
+void ICACHE_RAM_ATTR interruptHandler() {
   McpIState mcpi;
 
   brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
@@ -125,164 +223,115 @@ void ICACHE_RAM_ATTR triggerHandler() {
   {
     interruptDataLoss = !mcpQueue.push(&mcpi);
   }
+  events += 1;
+}
+
+
+byte ICACHE_RAM_ATTR mcpInit() {
+  uint8_t before[DEPTH];
+  uint8_t after[DEPTH];
+
+  byte retCode;
+
+  brzo_i2c_setup(PIN_SDA, PIN_SCL, 200);
+
+  /*
+   * Document PowerOn State
+  */
+  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
+  before[0] = 0x00;
+  brzo_i2c_write(before, 1, true);     // BANK.0.IODIRA
+  brzo_i2c_read(before, DEPTH, false); // BANK.0.ALL
+  retCode = brzo_i2c_end_transaction();
+  Serial.printf("Before return code=%d\n", retCode);
+  for (int idx = 0; idx < DEPTH; idx++)
+  {
+    Serial.printf("reg[0x%02x] %s value[" BYTE_TO_BINARY_PATTERN "]\n", idx, &bank0[idx][0], BYTE_TO_BINARY(before[idx]));
+  }
+
+  /*
+   * Configure MCP23017 
+  */
+  byte regData[8];
+  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
+  regData[0] = 0x0A; // IOCON
+  regData[1] = 0x40;
+  regData[2] = 0x40;
+  brzo_i2c_write(regData, 3, false);
+  retCode = brzo_i2c_end_transaction();
+  Serial.printf("IOCON Initilization return code=%d\n", retCode);
+
+  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
+  regData[0] = 0x02; // IPOL
+  regData[1] = 0xff;
+  regData[2] = 0xff;
+  regData[3] = 0xff; // GPINTEN
+  regData[4] = 0xff;
+  brzo_i2c_write(regData, 5, false);
+  retCode = brzo_i2c_end_transaction();
+  Serial.printf("IPOL/GPINTEN Initilization return code=%d\n", retCode);
+
+  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
+  regData[0] = 0x0C; // GPPU
+  regData[1] = 0xff;
+  regData[2] = 0xff;
+  brzo_i2c_write(regData, 3, false);
+  retCode = brzo_i2c_end_transaction();
+  Serial.printf("GPPU Initilization return code=%d\n", retCode);
+
+  /*
+   * Confirm Configuration
+  */
+  brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
+  after[0] = 0x00;
+  brzo_i2c_write(after, 1, true);
+  brzo_i2c_read(after, DEPTH, false);
+  retCode = brzo_i2c_end_transaction();
+  Serial.printf("After return code=%d\n", retCode);
+  for (int idx = 0; idx < DEPTH; idx++)
+  {
+    Serial.printf("reg[0x%02x] %s value[" BYTE_TO_BINARY_PATTERN "]\n", idx, &bank0[idx][0], BYTE_TO_BINARY(after[idx]));
+  }
+
+  mcpClearInterrupts();
+
+  return retCode;
+}
+
+void ICACHE_RAM_ATTR setupHandler()
+{  
+  mcpInit();
+  attachInterrupt(digitalPinToInterrupt(PIN_INT), interruptHandler, FALLING);
 }
 
 void setup()
 {
+
   Serial.begin(115200);
+  Serial.println("");
   Serial.printf("... Online @ %dmhz\n", ESP.getCpuFreqMHz());
 
-  brzo_i2c_setup(PIN_SDA, PIN_SCL, 200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(PIN_INT, INPUT_PULLUP);
   
-    /*
-     * Document PowerOn State
-    */
-    brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-    before[0] = 0x00;
-    brzo_i2c_write(before, 1, true);    // BANK.0.IODIRA
-    brzo_i2c_read(before, DEPTH, false); // BANK.0.ALL
-    retCode = brzo_i2c_end_transaction();
-    Serial.printf("Before return code=%d\n", retCode);
-    for (int idx = 0; idx < DEPTH; idx++)
-    {
-      Serial.printf("reg[0x%02x] %s value[" BYTE_TO_BINARY_PATTERN "]\n", idx, &bank0[idx][0], BYTE_TO_BINARY(before[idx]));
-    }
+  Homie_setFirmware("wired-provider-16", "1.0.0");
+  Homie_setBrand("SknSensors");
+  Homie
+      .setBroadcastHandler(broadcastHandler)
+      .setLoopFunction(loopHandler)
+      .setSetupFunction(setupHandler)
+      .onEvent(onHomieEvent)
+      .setLedPin(LED_BUILTIN, LOW);
 
-    /*
-     * Configure MCP23017 
-    */
-    byte regData[8];
-    brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-    regData[0] = 0x0A; // IOCON
-    regData[1] = 0x40;
-    regData[2] = 0x40;
-    brzo_i2c_write(regData, 3, false);
-    retCode = brzo_i2c_end_transaction();
-    Serial.printf("IOCON Initilization return code=%d\n", retCode);
+  wiredProvider.advertise("entry")
+          .setName("Entry[]")
+          .setDatatype("boolean")
+          .settable(false);
 
-    brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-    regData[0] = 0x02; // IPOL
-    regData[1] = 0xff;
-    regData[2] = 0xff;
-    regData[3] = 0xff; // GPINTEN
-    regData[4] = 0xff;
-    brzo_i2c_write(regData, 5, false);
-    retCode = brzo_i2c_end_transaction();
-    Serial.printf("IPOL/GPINTEN Initilization return code=%d\n", retCode);
-
-    brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-    regData[0] = 0x0C; // GPPU
-    regData[1] = 0xff;
-    regData[2] = 0xff;
-    brzo_i2c_write(regData, 3, false);
-    retCode = brzo_i2c_end_transaction();
-    Serial.printf("GPPU Initilization return code=%d\n", retCode);
-
-    /*
-     * Confirm Configuration
-    */
-    brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
-    after[0] = 0x00;
-    brzo_i2c_write(after, 1, false);
-    brzo_i2c_read(after, DEPTH, false);
-    retCode = brzo_i2c_end_transaction();
-    Serial.printf("After return code=%d\n", retCode);
-    for (int idx = 0; idx < DEPTH; idx++)
-    {
-      Serial.printf("reg[0x%02x] %s value[" BYTE_TO_BINARY_PATTERN "]\n", idx, &bank0[idx][0], BYTE_TO_BINARY(after[idx]));
-    }
-
-    pinMode(PIN_INT, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(PIN_INT), triggerHandler, FALLING);
-
-    mcpClearInterrupts();
-  }
-
-void ICACHE_RAM_ATTR loop()
-{
-  McpIState mcp;
-
-  while ( !mcpQueue.isEmpty() )
-  {
-    mcpQueue.pop(&mcp);
-    Serial.printf("Potential Data Loss:%s, Queue.Depth=%d, INTFA[" BYTE_TO_BINARY_PATTERN "] INTFB[" BYTE_TO_BINARY_PATTERN "] INTCAPA[" BYTE_TO_GPIO_PATTERN "] INTCAPB[" BYTE_TO_GPIO_PATTERN "]\n",
-                  interruptDataLoss ? "Yes" : "No", mcpQueue.getCount(),
-                  BYTE_TO_BINARY(mcp.intfA.port), BYTE_TO_BINARY(mcp.intfB.port),
-                  GPIOA_FROM_BYTE(mcp.intcapA.port), GPIOA_FROM_BYTE(mcp.intcapB.port));
-  }
-  interruptDataLoss = false;
-
-  if ((millis() % 60000UL) == 0)
-  {
-    mcpClearInterrupts();
-    Serial.print(".");
-  }
-  yield();
+  Homie.setup();
 }
 
-/* OUPUT
-
-Before return code=0
-reg[0x00] IODIRA   1111 1111 value[11111111]
-reg[0x01] IODIRB   1111 1111 value[11111111]
-reg[0x02] IPOLA    0000 0000 value[00000000]
-reg[0x03] IPOLB    0000 0000 value[00000000]
-reg[0x04] GPINTENA 0000 0000 value[00000000]
-reg[0x05] GPINTENB 0000 0000 value[00000000]
-reg[0x06] DEFVALA  0000 0000 value[00000000]
-reg[0x07] DEFVALB  0000 0000 value[00000000]
-reg[0x08] INTCONA  0000 0000 value[00000000]
-reg[0x09] INTCONB  0000 0000 value[00000000]
-reg[0x0a] IOCON-A  0000 0000 {BANK,MIRROR,SEQOP,DISSLW,HAEN,ODR,INTPOL,—} value[00000000]
-reg[0x0b] IOCON-B  0000 0000 {BANK,MIRROR,SEQOP,DISSLW,HAEN,ODR,INTPOL,—} value[00000000]
-reg[0x0c] GPPUA    0000 0000 value[00000000]
-reg[0x0d] GPPUB    0000 0000 value[00000000]
-reg[0x0e] INTFA    0000 0000 value[00000000]
-reg[0x0f] INTFB    0000 0000 value[00000000]
-reg[0x10] INTCAPA  0000 0000 value[00000000]
-reg[0x11] INTCAPB  0000 0000 value[00000000]
-reg[0x12] GPIOA    0000 0000 value[01000000]
-reg[0x13] GPIOB    0000 0000 value[00000000]
-reg[0x14] OLATA    0000 0000 value[00000000]
-reg[0x15] OLATB    0000 0000 value[00000000]
-IOCON Initilization return code=0
-IPOL/GPINTEN Initilization return code=0
-GPPU Initilization return code=0
-After return code=0
-reg[0x00] IODIRA   1111 1111 value[11111111]
-reg[0x01] IODIRB   1111 1111 value[11111111]
-reg[0x02] IPOLA    0000 0000 value[11111111]
-reg[0x03] IPOLB    0000 0000 value[11111111]
-reg[0x04] GPINTENA 0000 0000 value[11111111]
-reg[0x05] GPINTENB 0000 0000 value[11111111]
-reg[0x06] DEFVALA  0000 0000 value[00000000]
-reg[0x07] DEFVALB  0000 0000 value[00000000]
-reg[0x08] INTCONA  0000 0000 value[00000000]
-reg[0x09] INTCONB  0000 0000 value[00000000]
-reg[0x0a] IOCON-A  0000 0000 {BANK,MIRROR,SEQOP,DISSLW,HAEN,ODR,INTPOL,—} value[01000000]
-reg[0x0b] IOCON-B  0000 0000 {BANK,MIRROR,SEQOP,DISSLW,HAEN,ODR,INTPOL,—} value[01000000]
-reg[0x0c] GPPUA    0000 0000 value[11111111]
-reg[0x0d] GPPUB    0000 0000 value[11111111]
-reg[0x0e] INTFA    0000 0000 value[11111111]
-reg[0x0f] INTFB    0000 0000 value[11111111]
-reg[0x10] INTCAPA  0000 0000 value[10111111]
-reg[0x11] INTCAPB  0000 0000 value[11111111]
-reg[0x12] GPIOA    0000 0000 value[00111000]
-reg[0x13] GPIOB    0000 0000 value[00000000]
-reg[0x14] OLATA    0000 0000 value[00000000]
-reg[0x15] OLATB    0000 0000 value[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000000] INTFB[00000000] INTCAPA[00111000] INTCAPB[11000000] GPIOA[00111000] GPIOB[00000000] OLATA[00000000] OLATB[00000000]
-GPIO return code=0, INTFA[00000001] INTFB[00000000] INTCAPA[00001001] INTCAPB[11000000] GPIOA[,,,,PA3,,,PA0] GPIOB[,,,,,,,]
-GPIO return code=0, INTFA[00001000] INTFB[00000000] INTCAPA[00000001] INTCAPB[11000000] GPIOA[,,,,,,,] GPIOB[,,,,,,,]
-GPIO return code=0, INTFA[00000001] INTFB[00000000] INTCAPA[00000001] INTCAPB[11000000] GPIOA[,,,,,,,PA0] GPIOB[,,,,,,,]
-GPIO return code=0, INTFA[00000001] INTFB[00000000] INTCAPA[00000000] INTCAPB[11000000] GPIOA[,,,,,,,] GPIOB[,,,,,,,]
-GPIO return code=0, INTFA[10000000] INTFB[00000000] INTCAPA[10000000] INTCAPB[11000000] GPIOA[PA7,,,,,,,] GPIOB[,,,,,,,]
-GPIO return code=0, INTFA[00001000] INTFB[00000000] INTCAPA[10001000] INTCAPB[11000000] GPIOA[PA7,,,,PA3,,,] GPIOB[,,,,,,,]
-
-*/
+void loop()
+{
+  Homie.loop();
+}

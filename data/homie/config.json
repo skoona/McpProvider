@@ -1,0 +1,23 @@
+{
+  "name": "Wired Provider",
+  "device_id": "WiredProvider",
+  "device_stats_interval": 900,  
+  "wifi": {
+    "ssid": "SFNSS1-24G",
+    "password": "Apache Tomcat 8"
+  },
+  "mqtt": {
+    "host": "openhab.skoona.net",
+    "port": 1883,
+	"base_topic": "sknSensors/",
+    "auth": true,
+    "username": "openhabian",
+    "password": "Apache.Tomcat.8"
+  },
+  "ota": {
+    "enabled": true
+  },
+  "settings": {
+      "sensorsInterval": 900
+  }
+}
