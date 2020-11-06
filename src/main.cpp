@@ -14,7 +14,8 @@
 
 #define MCP23017_ADDR 0x27
 #define I2C_KHZ 400
-#define PIN_INT 14
+#define PIN_INTA 14
+#define PIN_INTB 12   // not used
 #define PIN_SCL  5
 #define PIN_SDA  4
 #define DEPTH 22 // 22
@@ -239,7 +240,7 @@ byte ICACHE_RAM_ATTR mcpInit() {
 void ICACHE_RAM_ATTR setupHandler()
 {  
   mcpInit();
-  attachInterrupt(digitalPinToInterrupt(PIN_INT), interruptHandler, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_INTA), interruptHandler, FALLING);
 }
 
 void setup()
@@ -250,7 +251,7 @@ void setup()
   Serial.printf("... Online @ %dmhz\n", ESP.getCpuFreqMHz());
 
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(PIN_INT, INPUT_PULLUP);
+  pinMode(PIN_INTA, INPUT_PULLUP);
   
   Homie_setFirmware("mcp-provider-16", "1.0.1");
   Homie_setBrand("SknSensors");
