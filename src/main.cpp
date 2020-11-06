@@ -22,6 +22,8 @@
 volatile bool interruptDataLoss = false;
 volatile unsigned long events = 0;
 volatile bool clearInterruptCycle = false;
+char bufferA[8];
+char bufferB[8];
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_GPIO_PATTERN "%s,%s,%s,%s,%s,%s,%s,%s"
@@ -74,6 +76,7 @@ typedef struct __attribute__((packed)) _McpIState
   uint8_t intcapB;
 } McpIState, *PMcpIState;
 
+
 byte ICACHE_RAM_ATTR mcpClearInterrupts();
 void ICACHE_RAM_ATTR interruptHandler();
 void mcpSendStatus(bool statusCycle);
@@ -83,7 +86,7 @@ McpIState mcp;
 Queue mcpQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instantiate queue
 
 // id, name, type, range, lower, upper
-HomieNode wiredProvider("entry", "Entry", "contact", true, 0, 15);
+HomieNode mcpProvider("wired", "McpProvider", "contact");
 
 bool broadcastHandler(const String &level, const String &value)
 {
@@ -110,15 +113,13 @@ void ICACHE_RAM_ATTR onHomieEvent(const HomieEvent &event)
   case HomieEventType::SENDING_STATISTICS:
     Serial << "Sending statistics !" << endl;
     mcpSendStatus( true );    
-    break;
+    break;    
   default:
     break;
   }
 }
 
 void mcpSendStatus(bool statusCycle=false) {
-  HomieRange rangeA = {true, 16};
-  HomieRange rangeB = {true, 16};
 
   Serial.printf("Event.Count[%05lu] Data.Loss[%s], Queue.Depth[%d], INTFA[" BYTE_TO_BINARY_PATTERN "] INTFB[" BYTE_TO_BINARY_PATTERN "] INTCAPA[" BYTE_TO_GPIO_PATTERN "] INTCAPB[" BYTE_TO_GPIO_PATTERN "]\n",
                 events, interruptDataLoss ? "Yes" : "No", mcpQueue.getCount(),
@@ -129,25 +130,26 @@ void mcpSendStatus(bool statusCycle=false) {
   String gpioB[] = {GPIOB_FROM_BYTE(mcp.intfB)};
   String intcapA[] = {BYTE_TO_STRING(mcp.intcapA)};
   String intcapB[] = {BYTE_TO_STRING(mcp.intcapB)};
+
   for (uint8_t idx = 0; idx < 8; idx++)
   {
-    rangeA.index = (7 - idx);
+    snprintf(bufferA, sizeof(bufferA), "pin%d", (7 - idx));
+    snprintf(bufferB, sizeof(bufferB), "pin%d", (15 - idx));
+
     if (!gpioA[idx].equals(" ") || statusCycle)
     {
-      wiredProvider.setProperty("entry").setRange(rangeA).send(intcapA[idx].equals("1") ? "true" : "false");
+      mcpProvider.setProperty(bufferA).send(intcapA[idx].equals("1") ? "CLOSED" : "OPEN");
     }
-    rangeB.index = (15 - idx);
     if (!gpioB[idx].equals(" ") || statusCycle)
     {
-      wiredProvider.setProperty("entry").setRange(rangeB).send(intcapB[idx].equals("1") ? "true" : "false");
+      mcpProvider.setProperty(bufferB).send(intcapB[idx].equals("1") ? "CLOSED" : "OPEN");
     }
   }
 
   clearInterruptCycle = statusCycle;
 }
 
-byte ICACHE_RAM_ATTR mcpClearInterrupts()
-{
+byte ICACHE_RAM_ATTR mcpClearInterrupts() {
   brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
   byte regData[2] = {0x10, 0x00}; // INTCAP         -- clean any missed interrupts
   brzo_i2c_write(regData, 1, true);
@@ -155,9 +157,7 @@ byte ICACHE_RAM_ATTR mcpClearInterrupts()
   return brzo_i2c_end_transaction();
 }
 
-void  loopHandler()
-{
-
+void  loopHandler() {
   if (!mcpQueue.isEmpty())
     digitalWrite(LED_BUILTIN, LOW);
 
@@ -196,9 +196,7 @@ void ICACHE_RAM_ATTR interruptHandler() {
   events += 1;
 }
 
-
 byte ICACHE_RAM_ATTR mcpInit() {
-
   byte retCode;
 
   brzo_i2c_setup(PIN_SDA, PIN_SCL, 200);
@@ -254,7 +252,7 @@ void setup()
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PIN_INT, INPUT_PULLUP);
   
-  Homie_setFirmware("wired-provider-16", "1.0.1");
+  Homie_setFirmware("mcp-provider-16", "1.0.1");
   Homie_setBrand("SknSensors");
   Homie
       .setBroadcastHandler(broadcastHandler)
@@ -263,11 +261,85 @@ void setup()
       .onEvent(onHomieEvent)
       .setLedPin(LED_BUILTIN, LOW);
 
-  wiredProvider.advertise("entry")
-      .setRetained(true)
-      .setName("Entry[]")
-      .setDatatype("boolean")
-      .settable(false);
+  mcpProvider.advertise("pin0")
+      .setName("pin0")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin1")
+      .setName("pin1")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin2")
+      .setName("pin2")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin3")
+      .setName("pin3")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin4")
+      .setName("pin4")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin5")
+      .setName("pin5")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin6")
+      .setName("pin6")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin7")
+      .setName("pin7")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin8")
+      .setName("pin8")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin9")
+      .setName("pin9")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin10")
+      .setName("pin10")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin11")
+      .setName("pin11")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin12")
+      .setName("pin12")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin13")
+      .setName("pin13")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin14")
+      .setName("pin14")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
+
+  mcpProvider.advertise("pin15")
+      .setName("pin15")
+      .setDatatype("enum")
+      .setFormat("OPEN,CLOSED");
 
   Homie.setup();
 }
