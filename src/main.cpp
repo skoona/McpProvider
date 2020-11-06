@@ -4,7 +4,6 @@
  * 
  * 
  */
-// #include <Arduino.h>
 #include <Homie.h>
 #include <brzo_i2c.h>
 #include <cppQueue.h>
@@ -84,7 +83,7 @@ void mcpSendStatus(bool statusCycle);
 
 McpIState mcp;
 
-Queue mcpQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instantiate queue
+cppQueue mcpQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instantiate queue
 
 // id, name, type, range, lower, upper
 HomieNode mcpProvider("wired", "McpProvider", "contact");
@@ -253,7 +252,7 @@ void setup()
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PIN_INTA, INPUT_PULLUP);
   
-  Homie_setFirmware("mcp-provider-16", "1.0.1");
+  Homie_setFirmware("mcp-provider-16", "1.0.3");
   Homie_setBrand("SknSensors");
   Homie
       .setBroadcastHandler(broadcastHandler)
