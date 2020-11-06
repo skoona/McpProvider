@@ -18,6 +18,7 @@
     "enabled": true
   },
   "settings": {
-      "sensorsInterval": 900
+      "ipolA": 255, 
+      "ipolB": 255  
   }
 }

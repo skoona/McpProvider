@@ -2,6 +2,9 @@
  * The Waveshare MCP23017 Module does not have a RESET LINE.
  * Thus physical power off is the only way to reset it.
  * 
+ * Custom Configuration Settings
+ *  - ipolA: 255 = 0xFF     Controls the input inversion for input pins
+ *  - ipolB: 255 = 0xFF     zero = !inverted, one = inverted
  * 
  */
 #include <Homie.h>
@@ -87,6 +90,8 @@ cppQueue mcpQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instanti
 
 // id, name, type, range, lower, upper
 HomieNode mcpProvider("wired", "McpProvider", "contact");
+HomieSetting<long> ipolASetting("ipolA", "Input inversion group A");
+HomieSetting<long> ipolBSetting("ipolB", "Input inversion group B");
 
 bool broadcastHandler(const String &level, const String &value)
 {
@@ -213,10 +218,13 @@ byte ICACHE_RAM_ATTR mcpInit() {
   retCode = brzo_i2c_end_transaction();
   Serial.printf("IOCON Initilization return code=%d\n", retCode);
 
+  Serial.print("ipolA: 0x"); Serial.println((uint8_t)ipolASetting.get(), HEX);
+  Serial.print("ipolB: 0x"); Serial.println((uint8_t)ipolBSetting.get(), HEX);
+
   brzo_i2c_start_transaction(MCP23017_ADDR, I2C_KHZ);
   regData[0] = 0x02; // IPOL
-  regData[1] = 0xff;
-  regData[2] = 0xff;
+  regData[1] = (uint8_t)ipolASetting.get();
+  regData[2] = (uint8_t)ipolBSetting.get();
   regData[3] = 0xff; // GPINTEN
   regData[4] = 0xff;
   brzo_i2c_write(regData, 5, false);
@@ -251,8 +259,15 @@ void setup()
 
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PIN_INTA, INPUT_PULLUP);
-  
-  Homie_setFirmware("mcp-provider-16", "1.0.3");
+
+  ipolASetting.setDefaultValue(255).setValidator([](long value) {
+    return value < 256;
+  });
+  ipolBSetting.setDefaultValue(255).setValidator([](long value) {
+    return value < 256;
+  });
+
+  Homie_setFirmware("mcp-provider-16", "1.0.4");
   Homie_setBrand("SknSensors");
   Homie
       .setBroadcastHandler(broadcastHandler)
