@@ -23,8 +23,7 @@
 #define PIN_INTA  D5  // 14
 #define MCP23017_ADDR 0x27
 
-
-MCP23017Node mcpProvider(PIN_SDA, PIN_SDA, PIN_INTA, MCP23017_ADDR, SKN_NODE_ID, SKN_NODE_TITLE, SKN_NODE_TYPE);
+MCP23017Node mcpProvider(PIN_SDA, PIN_SCL, PIN_INTA, MCP23017_ADDR, SKN_NODE_ID, SKN_NODE_TITLE, SKN_NODE_TYPE);
 
 HomieSetting<long> ipolASetting("ipolA", "Input inversion group A");
 HomieSetting<long> ipolBSetting("ipolB", "Input inversion group B");

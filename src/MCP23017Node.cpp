@@ -81,18 +81,21 @@ void ICACHE_RAM_ATTR MCP23017Node::interruptHandler() {
 }
 
 byte ICACHE_RAM_ATTR MCP23017Node::mcpClearInterrupts() {
+  uint8_t res;
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
   byte regData[2] = {0x10, 0x00}; // INTCAP         -- clean any missed interrupts
   brzo_i2c_write(regData, 1, true);
   brzo_i2c_read(regData, 2, false);
-  return brzo_i2c_end_transaction();
+  res = brzo_i2c_end_transaction();
+  _isrTriggeredAt = 0;
+  return res;
 }
 
 byte ICACHE_RAM_ATTR MCP23017Node::mcpInit() {
   byte retCode;
 
   brzo_i2c_setup(_sdaPin, _sclPin, 200); // clock_stretch_time_out_usec
-
+  
   /*
    * Configure MCP23017 
   */
@@ -143,9 +146,11 @@ void MCP23017Node::setup() {
     snprintf(cMesg1, sizeof(cMesg1), "%s%d", cPropertyBase, idx);
     snprintf(cMesg2, sizeof(cMesg2), "%s%d", cPropertyBaseName, idx);
     advertise(cMesg1)
-        .setName(cMesg2)
         .setDatatype(cPropertyBaseDataType)
+        .setName(cMesg2)
         .setFormat(cPropertyBaseFormat);
+
+    yield();
   }
 
   mcpClearInterrupts();
@@ -157,10 +162,13 @@ void MCP23017Node::setup() {
 void MCP23017Node::loop() {
   _isrTrigger = digitalRead(_isrPin);
   if (!_isrTrigger) {
+    delayMicroseconds(20);
+    _isrTriggeredAt = millis();
     interruptHandler();
     mcpClearInterrupts();
     _isrTrigger = HIGH;
-    Homie.getLogger() << cIndent << "Handled Interrupt" << endl;
+    
+    yield();
     return;
   }
 
@@ -198,6 +206,7 @@ void MCP23017Node::loop() {
           }
         }
       }
+      yield();
     }
     interruptDataLoss = false;
     digitalWrite(LED_BUILTIN, HIGH);

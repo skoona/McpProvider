@@ -55,16 +55,16 @@ private:
     uint8_t intfB;
     uint8_t intcapA;
     uint8_t intcapB;
-} McpIState, *PMcpIState;
+  } McpIState, *PMcpIState;
 
-uint8_t _ipolASetting = 0xff;
-uint8_t _ipolBSetting = 0xff;
+  uint8_t _ipolASetting = 0xff;
+  uint8_t _ipolBSetting = 0xff;
 
-cppQueue *mcpQueue;
-McpIState mcp;
+  cppQueue *mcpQueue;
+  McpIState mcp;
 
-void interruptHandler();
-byte mcpClearInterrupts();
-byte mcpInit();
+  void interruptHandler();
+  byte mcpClearInterrupts();
+  byte mcpInit();
 
 };
