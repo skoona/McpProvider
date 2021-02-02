@@ -70,7 +70,7 @@ void ICACHE_RAM_ATTR MCP23017Node::interruptHandler() {
   McpIState mcpi;
 
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  byte regData[2] = {0x0E, 0x00}; // INTF -> INTCAP
+  byte regData[2] = {MCP23017_INTFA, 0x00}; // INTF -> INTCAP
   brzo_i2c_write(regData, 1, true);
   brzo_i2c_read((uint8_t *)&(mcpi.intfA), sizeof(McpIState), false);
   if (!brzo_i2c_end_transaction())
@@ -84,7 +84,7 @@ void ICACHE_RAM_ATTR MCP23017Node::interruptHandler() {
 byte ICACHE_RAM_ATTR MCP23017Node::mcpClearInterrupts() {
   uint8_t res;
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  byte regData[2] = {0x10, 0x00}; // INTCAP         -- clean any missed interrupts
+  byte regData[2] = {MCP23017_INTCAPA, 0x00}; // INTCAP         -- clean any missed interrupts
   brzo_i2c_write(regData, 1, true);
   brzo_i2c_read(regData, 2, false);
   res = brzo_i2c_end_transaction();
@@ -102,7 +102,7 @@ byte ICACHE_RAM_ATTR MCP23017Node::mcpInit() {
   */
   byte regData[8];
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  regData[0] = 0x0A; // IOCON
+  regData[0] = MCP23017_IOCONA; // IOCON
   regData[1] = 0x40;
   regData[2] = 0x40;
   brzo_i2c_write(regData, 3, false);
@@ -113,7 +113,7 @@ byte ICACHE_RAM_ATTR MCP23017Node::mcpInit() {
   Serial.print("ipolB: 0x"); Serial.println(_ipolBSetting, HEX);
 
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  regData[0] = 0x02; // IPOL
+  regData[0] = MCP23017_IPOLA; // IPOL
   regData[1] = _ipolASetting;
   regData[2] = _ipolBSetting;
   regData[3] = 0xff; // GPINTEN
@@ -123,7 +123,7 @@ byte ICACHE_RAM_ATTR MCP23017Node::mcpInit() {
   Serial.printf("IPOL/GPINTEN Initilization return code=%d\n", retCode);
 
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  regData[0] = 0x0C; // GPPU
+  regData[0] = MCP23017_GPPUA; // GPPU
   regData[1] = 0xff;
   regData[2] = 0xff;
   brzo_i2c_write(regData, 3, false);
