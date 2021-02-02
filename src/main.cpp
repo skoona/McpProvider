@@ -11,7 +11,7 @@
 #include <MCP23017Node.hpp>
 
 #define SKN_MOD_NAME    "AlarmSystem"
-#define SKN_MOD_VERSION "1.0.0"
+#define SKN_MOD_VERSION "1.2.0"
 #define SKN_MOD_BRAND   "SknSensors"
 #define SKN_NODE_TITLE  "Wired Sensors"
 #define SKN_NODE_TYPE   "sensor"
