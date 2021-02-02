@@ -77,6 +77,7 @@ void ICACHE_RAM_ATTR MCP23017Node::interruptHandler() {
   {
     interruptDataLoss = !mcpQueue->push(&mcpi);
   }
+  _isrLastTriggeredAt = millis();
   events += 1;
 }
 
@@ -87,7 +88,7 @@ byte ICACHE_RAM_ATTR MCP23017Node::mcpClearInterrupts() {
   brzo_i2c_write(regData, 1, true);
   brzo_i2c_read(regData, 2, false);
   res = brzo_i2c_end_transaction();
-  _isrTriggeredAt = 0;
+  _isrLastTriggeredAt = millis();
   return res;
 }
 
@@ -143,16 +144,16 @@ void MCP23017Node::setup() {
   // attachInterrupt(digitalPinToInterrupt(PIN_INTA), interruptHandler, FALLING);
 
   for(int idx = 0; idx < _numPins; idx++) {
-    snprintf(cMesg1, sizeof(cMesg1), "%s%d", cPropertyBase, idx);
-    snprintf(cMesg2, sizeof(cMesg2), "%s%d", cPropertyBaseName, idx);
-    advertise(cMesg1)
+    snprintf(cProperty[idx], sizeof(cProperty[idx]), "%s%d", cPropertyBase, idx);
+    snprintf(cPropertyName[idx], sizeof(cPropertyName[idx]), "%s%d", cPropertyBaseName, idx);
+    advertise(cProperty[idx])
         .setDatatype(cPropertyBaseDataType)
-        .setName(cMesg2)
+        .setName(cPropertyName[idx])
         .setFormat(cPropertyBaseFormat);
 
     yield();
   }
-
+  
   mcpClearInterrupts();
 }
 
@@ -161,21 +162,28 @@ void MCP23017Node::setup() {
 */
 void MCP23017Node::loop() {
   _isrTrigger = digitalRead(_isrPin);
-  if (!_isrTrigger) {
-    delayMicroseconds(20);
-    _isrTriggeredAt = millis();
-    interruptHandler();
-    mcpClearInterrupts();
-    _isrTrigger = HIGH;
+  if (!_isrTrigger) {                // active low
+    _isrTriggeredAt = millis();      // note when it happened
+
+    // limit repeats to greater than 80 ms
+    if ( (_isrTriggeredAt - _isrLastTriggeredAt) >= 80 )
+    {
+      interruptHandler();      
+    } else {
+      mcpClearInterrupts();            // clears _isrTriggeredAt
+    }
     
-    yield();
+    _isrTrigger = HIGH;
     return;
   }
 
-  if (!mcpQueue->isEmpty()) {
+  if (!mcpQueue->isEmpty())
+  {
     digitalWrite(LED_BUILTIN, LOW);
 
-    while (!mcpQueue->isEmpty()) {    
+    int labelA = 0, labelB = 0;
+    while (!mcpQueue->isEmpty())
+    {
       if (mcpQueue->pop(&mcp) ) {
         Serial.printf("Event.Count[%05lu] Data.Loss[%s], Queue.Depth[%d], INTFA[" BYTE_TO_BINARY_PATTERN "] INTFB[" BYTE_TO_BINARY_PATTERN "] INTCAPA[" BYTE_TO_GPIO_PATTERN "] INTCAPB[" BYTE_TO_GPIO_PATTERN "]\n",
                   events, interruptDataLoss ? "Yes" : "No", mcpQueue->getCount(),
@@ -189,20 +197,20 @@ void MCP23017Node::loop() {
 
         for (uint8_t idx = 0; idx < 8; idx++)
         {
-          snprintf(bufferA, sizeof(bufferA), "pin%d", (7 - idx));
-          snprintf(bufferB, sizeof(bufferB), "pin%d", (15 - idx));
+          labelA = (7 - idx);
+          labelB = (15 - idx);
 
           if (!gpioA[idx].equals(" "))
           {
-            setProperty(bufferA)
-              .setRetained(true)
-              .send(intcapA[idx].equals("1") ? "CLOSED" : "OPEN");
+            setProperty(cProperty[labelA])
+                .setRetained(true)
+                .send(intcapA[idx].equals("1") ? "CLOSED" : "OPEN");
           }
           if (!gpioB[idx].equals(" "))
           {
-            setProperty(bufferB)
-              .setRetained(true)
-              .send(intcapB[idx].equals("1") ? "CLOSED" : "OPEN");
+            setProperty(cProperty[labelB])
+                .setRetained(true)
+                .send(intcapB[idx].equals("1") ? "CLOSED" : "OPEN");
           }
         }
       }
@@ -210,6 +218,6 @@ void MCP23017Node::loop() {
     }
     interruptDataLoss = false;
     digitalWrite(LED_BUILTIN, HIGH);
-  }  
+  }
 }
 
