@@ -1,6 +1,6 @@
 {
   "name": "Hard Wired Alarm Sensors",
-  "device_id": "MCPProvider",
+  "device_id": "MCPProviderNode",
   "device_stats_interval": 300,  
   "wifi": {
     "ssid": "SFNSS1-24G",
