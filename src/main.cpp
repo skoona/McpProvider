@@ -19,9 +19,10 @@ extern "C"
 #include "MCP23017Node.hpp"
 #include "MetricsNode.hpp"
 
-#define SKN_MOD_NAME    "HardWiredAlarms"
-#define SKN_MOD_VERSION "1.3.1"
+#define SKN_MOD_NAME    "WiredProvider"
+#define SKN_MOD_VERSION "1.4.0"
 #define SKN_MOD_BRAND   "SknSensors"
+
 #define SKN_NODE_TITLE  "Wired Sensors"
 #define SKN_NODE_TYPE   "sensor"
 #define SKN_NODE_ID     "wiredMonitor"
@@ -75,7 +76,7 @@ void setup()
     .setLedPin(LED_BUILTIN, LOW);
 
   yield();
-  
+
   Homie.setup();
 }
 
