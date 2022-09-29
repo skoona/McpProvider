@@ -20,11 +20,11 @@ extern "C"
 #include "MetricsNode.hpp"
 
 #define SKN_MOD_NAME    "WiredProvider"
-#define SKN_MOD_VERSION "1.4.0"
+#define SKN_MOD_VERSION "2.0.3"
 #define SKN_MOD_BRAND   "SknSensors"
 
 #define SKN_NODE_TITLE  "Wired Sensors"
-#define SKN_NODE_TYPE   "sensor"
+#define SKN_NODE_TYPE   "contact"
 #define SKN_NODE_ID     "wiredMonitor"
 
 #define SKN_MNODE_TITLE "Device Info"
@@ -37,14 +37,52 @@ extern "C"
 #define PIN_INTA  D5  // 14
 #define MCP23017_ADDR 0x27
 
+ADC_MODE(ADC_VCC); //vcc read
+
+/* 
+ * Homie Settings */
 HomieSetting<long> ipolASetting("ipolA", "Input inversion group A");
 HomieSetting<long> ipolBSetting("ipolB", "Input inversion group B");
 
+/* 
+ * Homie Nodes */
 MCP23017Node mcpProvider(PIN_SDA, PIN_SCL, PIN_INTA, MCP23017_ADDR, 
                          SKN_NODE_ID, SKN_NODE_TITLE, SKN_NODE_TYPE);
+
 MetricsNode metricsNode(SKN_MNODE_ID, SKN_MNODE_TITLE, SKN_MNODE_TYPE);
 
-ADC_MODE(ADC_VCC); //vcc read
+
+/* *
+  *
+  * guard-flag to prevent sending properties when mqtt is offline
+  * 
+*/
+volatile bool gRun=false;
+
+/**
+ * look for events that block sending property info */
+void onHomieEvent(const HomieEvent& event) {
+  switch (event.type) {
+    case HomieEventType::MQTT_READY:
+      Serial << "MQTT connected" << endl;
+      gRun=true;
+      break;
+    case HomieEventType::MQTT_DISCONNECTED:
+      Serial << "MQTT disconnected, reason: " << (int8_t)event.mqttReason << endl;
+      gRun=false;
+      break;
+    case HomieEventType::SENDING_STATISTICS:
+      Serial << "Sending statistics" << endl;
+      break;
+    case HomieEventType::OTA_STARTED:
+      gRun=false;
+      break;
+    case HomieEventType::OTA_SUCCESSFUL:
+    case HomieEventType::OTA_FAILED:
+      gRun=true;
+      break;
+  }
+}
 
 bool broadcastHandler(const String &level, const String &value)
 {
@@ -55,7 +93,14 @@ bool broadcastHandler(const String &level, const String &value)
 void setup()
 {
 
+  delay(100);
   Serial.begin(115200);
+  delay(100);
+    if (!Serial)
+  {
+    Homie.disableLogging();
+  }
+
   Serial.println("");
   Serial.printf("... Online @ %dmhz\n", ESP.getCpuFreqMHz());
 
@@ -73,9 +118,9 @@ void setup()
 
   Homie
     .setBroadcastHandler(broadcastHandler)
-    .setLedPin(LED_BUILTIN, LOW);
-
-  yield();
+    .setLedPin(LED_BUILTIN, LOW)
+    .disableResetTrigger()
+    .onEvent(onHomieEvent);
 
   Homie.setup();
 }

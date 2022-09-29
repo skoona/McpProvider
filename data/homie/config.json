@@ -7,9 +7,9 @@
     "password": "Apache Tomcat 8"
   },
   "mqtt": {
-    "host": "openhab.skoona.net",
+    "host": "openhabianpi.local.skoona.net",
     "port": 1883,
-	"base_topic": "sknSensors/",
+    "base_topic": "sknSensors/",
     "auth": true,
     "username": "openhabian",
     "password": "Apache.Tomcat.8"

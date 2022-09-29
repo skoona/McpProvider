@@ -12,7 +12,7 @@
 #define BYTE_TO_GPIO_PATTERN "%s,%s,%s,%s,%s,%s,%s,%s"
 
 #define BYTE_TO_STRING(byte)     \
-      (byte & 0x80 ? "1" : "0"),     \
+      (byte & 0x80 ? "1" : "0"), \
       (byte & 0x40 ? "1" : "0"), \
       (byte & 0x20 ? "1" : "0"), \
       (byte & 0x10 ? "1" : "0"), \
@@ -22,7 +22,7 @@
       (byte & 0x01 ? "1" : "0")
 
 #define BYTE_TO_BINARY(byte)     \
-      (byte & 0x80 ? '1' : '0'),     \
+      (byte & 0x80 ? '1' : '0'), \
       (byte & 0x40 ? '1' : '0'), \
       (byte & 0x20 ? '1' : '0'), \
       (byte & 0x10 ? '1' : '0'), \
@@ -31,7 +31,7 @@
       (byte & 0x02 ? '1' : '0'), \
       (byte & 0x01 ? '1' : '0')
 
-#define GPIOA_FROM_BYTE(byte)      \
+#define GPIOA_FROM_BYTE(byte)    \
       (byte & 0x80 ? "7" : " "), \
       (byte & 0x40 ? "6" : " "), \
       (byte & 0x20 ? "5" : " "), \
@@ -42,7 +42,7 @@
       (byte & 0x01 ? "0" : " ")
 
 #define GPIOB_FROM_BYTE(byte)     \
-      (byte & 0x80 ? "15" : " "),     \
+      (byte & 0x80 ? "15" : " "), \
       (byte & 0x40 ? "14" : " "), \
       (byte & 0x20 ? "13" : " "), \
       (byte & 0x10 ? "12" : " "), \
@@ -105,7 +105,8 @@ void MCP23017Node::handleCurrentState(McpIState *mcp, bool statusOverride)
   }
 }
 
-void ICACHE_RAM_ATTR MCP23017Node::interruptHandler() {
+void IRAM_ATTR MCP23017Node::interruptHandler()
+{
   McpIState mcpi;
 
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
@@ -119,7 +120,7 @@ void ICACHE_RAM_ATTR MCP23017Node::interruptHandler() {
   _isrLastTriggeredAt = millis();
   events += 1;
 }
-byte ICACHE_RAM_ATTR MCP23017Node::readState()
+byte IRAM_ATTR MCP23017Node::readState()
 {
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
   byte regData[2] = {MCP23017_GPIOA, 0x00}; // GPIOA/B
@@ -128,7 +129,8 @@ byte ICACHE_RAM_ATTR MCP23017Node::readState()
   return brzo_i2c_end_transaction();
 }
 
-byte ICACHE_RAM_ATTR MCP23017Node::mcpClearInterrupts() {
+byte IRAM_ATTR MCP23017Node::mcpClearInterrupts()
+{
   uint8_t res;
   brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
   byte regData[2] = {MCP23017_INTCAPA, 0x00}; // INTCAP         -- clean any missed interrupts
@@ -139,7 +141,8 @@ byte ICACHE_RAM_ATTR MCP23017Node::mcpClearInterrupts() {
   return res;
 }
 
-byte ICACHE_RAM_ATTR MCP23017Node::mcpInit() {
+byte IRAM_ATTR MCP23017Node::mcpInit()
+{
   byte retCode;
 
   brzo_i2c_setup(_sdaPin, _sclPin, 200); // clock_stretch_time_out_usec
