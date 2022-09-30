@@ -2,6 +2,7 @@
  * Homie Node for MCP23017 I2c Port Expander
  * 
  */
+
 #include "MCP23017Node.hpp"
 
 // Queue values
@@ -51,19 +52,17 @@
       (byte & 0x02 ? "9" : " "), \
       (byte & 0x01 ? "8" : " ")
 
-MCP23017Node::MCP23017Node(const uint8_t sdaPin, const uint8_t sclPin, const uint8_t isrPin, const uint8_t devAddr, const char *id, const char *name, const char *nType, const int measurementInterval)    : HomieNode(id, name, nType, false, 0U, 0U), 
+MCP23017Node::MCP23017Node(const uint8_t sdaPin, const uint8_t sclPin, const uint8_t isrPin, const uint8_t devAddr, const char *id, const char *name, const char *nType, const int measurementInterval): 
+    HomieNode(id, name, nType, false, 0U, 0U), 
     _sdaPin(sdaPin), 
     _sclPin(sclPin),
     _isrPin(isrPin),
-    _devAddr(devAddr)
-{
-
+    _devAddr(devAddr),
+    mcp(devAddr, Wire) {
+  
   _measurementInterval = (measurementInterval > MIN_INTERVAL) ? measurementInterval : MIN_INTERVAL;
   _lastMeasurement = 0;
-
-  // Start up
-  mcpQueue = new cppQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instantiate queue
-
+  
   pinMode(_isrPin, INPUT_PULLUP);
 }
 
@@ -109,78 +108,80 @@ void IRAM_ATTR MCP23017Node::interruptHandler()
 {
   McpIState mcpi;
 
-  brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  byte regData[2] = {MCP23017_INTFA, 0x00}; // INTF -> INTCAP
-  brzo_i2c_write(regData, 1, true);
-  brzo_i2c_read((uint8_t *)&(mcpi.intfA), sizeof(McpIState), false);
-  if (!brzo_i2c_end_transaction())
-  {
+  if (!mcp.interruptedBy(mcpi.intfA, mcpi.intfB))  {
     interruptDataLoss = !mcpQueue->push(&mcpi);
   }
   _isrLastTriggeredAt = millis();
   events += 1;
 }
+
 byte IRAM_ATTR MCP23017Node::readState()
 {
-  brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  byte regData[2] = {MCP23017_GPIOA, 0x00}; // GPIOA/B
-  brzo_i2c_write(regData, 1, true);
-  brzo_i2c_read((uint8_t *)&(mcp.intcapA), sizeof(2), false);
-  return brzo_i2c_end_transaction();
+  uint8_t res = 1;
+
+  mcpState.intcapA = mcp.readPort(MCP23017Port::A);  // returns 1 byte
+  mcpState.intcapB = mcp.readPort(MCP23017Port::B);  // returns 1 byte
+
+  return res;
 }
 
 byte IRAM_ATTR MCP23017Node::mcpClearInterrupts()
 {
-  uint8_t res;
-  brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  byte regData[2] = {MCP23017_INTCAPA, 0x00}; // INTCAP         -- clean any missed interrupts
-  brzo_i2c_write(regData, 1, true);
-  brzo_i2c_read(regData, 2, false);
-  res = brzo_i2c_end_transaction();
+  uint8_t res = 0;
+  res = mcp.clearInterrupts();
   _isrLastTriggeredAt = millis();
+
   return res;
 }
 
-byte IRAM_ATTR MCP23017Node::mcpInit()
+byte IRAM_ATTR MCP23017Node::begin()
 {
+  // Start up
   byte retCode;
 
-  brzo_i2c_setup(_sdaPin, _sclPin, 200); // clock_stretch_time_out_usec
-  
+  mcpQueue = new cppQueue(sizeof(McpIState), 16, IMPLEMENTATION, OVERWRITE); // Instantiate queue
+
+  Wire.begin(_sdaPin, _sclPin, _devAddr);
+
   /*
    * Configure MCP23017 
+   * BANK   = 	0 : sequential register addresses
+	 * MIRROR = 	1 : use configureInterrupt 
+	 * SEQOP  = 	0 : sequential operation disabled, address pointer does not increment
+	 * DISSLW = 	0 : slew rate enabled
+	 * HAEN   = 	0 : hardware address pin is always enabled on 23017
+	 * ODR    = 	0 : open drain output
+	 * INTPOL = 	0 : interrupt active low
   */
-  byte regData[8];
-  brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  regData[0] = MCP23017_IOCONA; // IOCON - Turn on mirroring for ISRs
-  regData[1] = 0x40;
-  regData[2] = 0x40;
-  brzo_i2c_write(regData, 3, false);
-  retCode = brzo_i2c_end_transaction();
+  // mcp.init();
+  
+  retCode = mcp.writeRegister(MCP23017Register::IOCON, 0x40, 0x40);
   Serial.printf("IOCON Initilization return code=%d\n", retCode);
 
+  retCode = mcp.portMode(MCP23017Port::A, 0xff, 0xff, _ipolASetting);    // Port A as output, pullup, inverted
   Serial.print("ipolA: 0x"); Serial.println(_ipolASetting, HEX);
+
+  retCode = mcp.portMode(MCP23017Port::B, 0xff, 0xff, _ipolBSetting);    // Port B as output, pullup, inverted
   Serial.print("ipolB: 0x"); Serial.println(_ipolBSetting, HEX);
 
-  brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  regData[0] = MCP23017_IPOLA; // IPOL - custom bit flips
-  regData[1] = _ipolASetting;
-  regData[2] = _ipolBSetting;
-  regData[3] = 0xff; // GPINTEN - enable interrupts on change for all
-  regData[4] = 0xff;
-  brzo_i2c_write(regData, 5, false);
-  retCode = brzo_i2c_end_transaction();
+  retCode = mcp.interruptMode(MCP23017InterruptMode::Or); // All pins post Interrupt
+  Serial.printf("MCP23017InterruptMode return code=%d\n", retCode);
+
+  retCode = mcp.writeRegister(MCP23017Register::GPINTEN_A, 0xff, 0xff); // GPINTEN - enable interrupts on change for all
   Serial.printf("IPOL/GPINTEN Initilization return code=%d\n", retCode);
 
-  brzo_i2c_start_transaction(_devAddr, I2C_KHZ);
-  regData[0] = MCP23017_GPPUA; // GPPU Turn Pullups ON for all Pins
-  regData[1] = 0xff;
-  regData[2] = 0xff;
-  brzo_i2c_write(regData, 3, false);
-  retCode = brzo_i2c_end_transaction();
-  Serial.printf("GPPU Initilization return code=%d\n", retCode);
-
   return retCode;
+}
+
+/**
+ *
+ */
+void MCP23017Node::onReadyToOperate() {
+  Homie.getLogger()
+      << "✖  "
+      << "Node: " << getName()
+      << " Ready to operate " 
+      << endl;
 }
 
 /**
@@ -189,6 +190,8 @@ byte IRAM_ATTR MCP23017Node::mcpInit()
 void MCP23017Node::setup() {
   Homie.getLogger() << cCaption << endl;
   Homie.getLogger() << cIndent << cPropertyBaseName << endl;
+
+  Wire.begin(_sdaPin, _sclPin, _devAddr);
 
   for(int idx = 0; idx < _numPins; idx++) {
     snprintf(cProperty[idx], sizeof(cProperty[idx]), "%s%d", cPropertyBase, idx);
@@ -199,7 +202,7 @@ void MCP23017Node::setup() {
         .setFormat(cPropertyBaseFormat);
   }
 
-  mcpInit();
+  begin();
   mcpClearInterrupts();
 }
 
@@ -228,7 +231,7 @@ void MCP23017Node::loop() {
   {
     _lastMeasurement = millis();
 
-    handleCurrentState(&mcp, true);
+    handleCurrentState(&mcpState, true);
 
     yield();
   }
@@ -239,8 +242,8 @@ void MCP23017Node::loop() {
 
     while (!mcpQueue->isEmpty())
     {
-      if (mcpQueue->pop(&mcp) ) {
-        handleCurrentState( &mcp, false);
+      if (mcpQueue->pop(&mcpState) ) {
+        handleCurrentState( &mcpState, false);
       }
       yield();
     }

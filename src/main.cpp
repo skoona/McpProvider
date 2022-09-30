@@ -7,6 +7,9 @@
  *  - ipolB: 255 = 0xFF     zero = !inverted, one = inverted
  * 
  */
+#include <Homie.h>
+#include "MCP23017Node.hpp"
+#include "MetricsNode.hpp"
 
 #ifdef ESP8266
 extern "C"
@@ -14,10 +17,6 @@ extern "C"
 #include "user_interface.h" // to set CPU Freq for Non-Huzzah's
 }
 #endif
-
-#include <Homie.h>
-#include "MCP23017Node.hpp"
-#include "MetricsNode.hpp"
 
 #define SKN_MOD_NAME    "WiredProvider"
 #define SKN_MOD_VERSION "2.0.3"
@@ -84,12 +83,6 @@ void onHomieEvent(const HomieEvent& event) {
   }
 }
 
-bool broadcastHandler(const String &level, const String &value)
-{
-  Homie.getLogger() << "Received broadcast level " << level << ": " << value << endl;
-  return true;
-}
-
 void setup()
 {
 
@@ -117,7 +110,6 @@ void setup()
   Homie_setBrand(SKN_MOD_BRAND);
 
   Homie
-    .setBroadcastHandler(broadcastHandler)
     .setLedPin(LED_BUILTIN, LOW)
     .disableResetTrigger()
     .onEvent(onHomieEvent);

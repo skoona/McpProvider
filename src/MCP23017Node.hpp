@@ -8,7 +8,8 @@
 
 #include <Homie.hpp>
 #include <cppQueue.h>
-#include <brzo_i2c.h>
+#include <Wire.h>
+#include <MCP23017.h>
 
 #define I2C_KHZ 400
 
@@ -42,11 +43,13 @@ class MCP23017Node : public HomieNode {
 
 public:
   MCP23017Node(const uint8_t sdaPin, const uint8_t sclPin, const uint8_t isrPin, const uint8_t devAddr, const char *id, const char *name, const char *nType, const int measurementInterval = MEASUREMENT_INTERVAL);
+  
   void setInversionPolarityAB(uint8_t valueA, uint8_t valueB) { _ipolASetting = valueA; _ipolBSetting = valueB; }
   void setMeasurementInterval(unsigned long interval) { _measurementInterval = interval; }
 
 protected:
   void setup() override;
+  void onReadyToOperate() override;
   void loop() override;
   
 private:
@@ -56,15 +59,15 @@ private:
   uint8_t _devAddr;
 
   // suggested rate is 1/60Hz (1m)
-  static const int MIN_INTERVAL = 60; // in seconds
-  static const int MEASUREMENT_INTERVAL = 300;
-  unsigned long _measurementInterval;
-  unsigned long _lastMeasurement;
+      static const int MIN_INTERVAL = 60; // in seconds
+      static const int MEASUREMENT_INTERVAL = 300;
+        unsigned long _measurementInterval;
+        unsigned long _lastMeasurement;
+  const unsigned long _InterruptBounce = 250;
 
   const char *cCaption = "• MCP23017 WaveShare Module:";
   const char* cIndent  = "  ◦ ";
 
-  const unsigned long _InterruptBounce = 250;
 
   const int  _numPins = 16;
   const char *cPropertyBase = "pin";
@@ -72,14 +75,14 @@ private:
   const char *cPropertyBaseDataType = "enum";
   const char *cPropertyBaseFormat = "OPEN,CLOSED";
 
-  byte _isrTrigger = LOW;
+           byte _isrTrigger = LOW;
   unsigned long _isrTriggeredAt = 0L;
   unsigned long _isrLastTriggeredAt = 0L;
 
-  bool interruptDataLoss = false;
+           bool interruptDataLoss = false;
   unsigned long events = 0;
-  char cProperty[16][10];       // property
-  char cPropertyName[16][10];   // property Title
+           char cProperty[16][16];       // property
+           char cPropertyName[16][16];   // property Title
 
   typedef struct __attribute__((packed)) _McpIState
   {
@@ -92,12 +95,14 @@ private:
   uint8_t _ipolASetting = 0xff;
   uint8_t _ipolBSetting = 0xff;
 
-  cppQueue *mcpQueue;
-  McpIState mcp;
+   MCP23017 mcp;
+   cppQueue *mcpQueue;
+  McpIState mcpState;
 
   void interruptHandler();
   byte mcpClearInterrupts();
-  byte mcpInit();
+  byte begin();
   void handleCurrentState(McpIState *mcp, bool statusOverride);
   byte IRAM_ATTR readState();
+
 };
