@@ -75,7 +75,7 @@ void MetricsNode::setup()
                         << endl;
       Homie.getLogger() << cIndent
                         << F(" 3.3V Supply: ")
-                        << (ESP.getVcc() / 1000.0)
+                        << (ESP.getVcc() / 1000.0)+0.3 // adjustment
                         << endl;
 
       setProperty(cPropertySignal)
@@ -92,6 +92,6 @@ void MetricsNode::setup()
 
       setProperty(cPropertySupply)
           .setRetained(true)
-          .send(String((ESP.getVcc() / 1000.0)));
+          .send(String((ESP.getVcc() / 1000.0)+0.3));
     }
   }

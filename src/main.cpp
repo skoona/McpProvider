@@ -19,7 +19,7 @@ extern "C"
 #endif
 
 #define SKN_MOD_NAME    "WiredProvider"
-#define SKN_MOD_VERSION "2.0.3"
+#define SKN_MOD_VERSION "3.0.0"
 #define SKN_MOD_BRAND   "SknSensors"
 
 #define SKN_NODE_TITLE  "Wired Sensors"
@@ -72,6 +72,7 @@ void onHomieEvent(const HomieEvent& event) {
       break;
     case HomieEventType::SENDING_STATISTICS:
       Serial << "Sending statistics" << endl;
+      mcpProvider.sendCurrentStatus();
       break;
     case HomieEventType::OTA_STARTED:
       gRun=false;
@@ -83,14 +84,21 @@ void onHomieEvent(const HomieEvent& event) {
   }
 }
 
+/*
+ * Arduino Setup: Initialze Homie */
 void setup()
 {
 
   delay(100);
+
+  // REG_SET_BIT(0x3ff00014, BIT(0));
+  // REG_CLR_BIT(0x3ff00014, BIT(0));
+  // system_update_cpu_freq(160);
+
+  delay(1000);
   Serial.begin(115200);
   delay(100);
-    if (!Serial)
-  {
+  if (!Serial)  {
     Homie.disableLogging();
   }
 
@@ -117,7 +125,8 @@ void setup()
   Homie.setup();
 }
 
-void loop()
-{
+/*
+ * Arduino Loop: Cycles Homie Nodes */
+void loop() {
   Homie.loop();
 }
